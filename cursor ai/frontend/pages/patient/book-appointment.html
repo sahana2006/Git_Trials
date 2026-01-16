@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Appointment - Patient Management System</title>
+    <link rel="stylesheet" href="../../css/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <nav class="container">
+            <div class="logo">🏥 PatientCare</div>
+            <ul class="nav-links">
+                <li><a href="dashboard.html">Dashboard</a></li>
+                <li><a href="book-appointment.html">Book Appointment</a></li>
+                <li><a href="#" id="logoutBtn">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Booking Form -->
+    <section class="section">
+        <div class="container-sm">
+            <div class="card">
+                <h2 class="text-center">Book Appointment</h2>
+                <p class="text-center" style="color: var(--text-secondary); margin-bottom: 2rem;">
+                    Select a doctor, date, and time for your appointment
+                </p>
+
+                <form id="bookingForm">
+                    <!-- Step 1: Select Doctor -->
+                    <div id="step1" class="booking-step">
+                        <h3>1. Select Doctor</h3>
+                        <div class="form-group">
+                            <label for="doctor" class="form-label">Doctor *</label>
+                            <select id="doctor" name="doctor" class="form-select" required>
+                                <option value="">Loading doctors...</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="nextStep()">Next</button>
+                    </div>
+
+                    <!-- Step 2: Select Date -->
+                    <div id="step2" class="booking-step hidden">
+                        <h3>2. Select Date</h3>
+                        <div class="form-group">
+                            <label for="appointmentDate" class="form-label">Date *</label>
+                            <input 
+                                type="date" 
+                                id="appointmentDate" 
+                                name="appointmentDate" 
+                                class="form-input" 
+                                required
+                                min=""
+                            >
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button type="button" class="btn btn-outline" onclick="prevStep()">Back</button>
+                            <button type="button" class="btn btn-primary" onclick="loadTimeSlots()">Next</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Select Time -->
+                    <div id="step3" class="booking-step hidden">
+                        <h3>3. Select Time</h3>
+                        <div class="form-group">
+                            <label class="form-label">Available Time Slots *</label>
+                            <div id="timeSlots" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem;">
+                                <p>Please select a date first</p>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button type="button" class="btn btn-outline" onclick="prevStep()">Back</button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep()">Next</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Confirm -->
+                    <div id="step4" class="booking-step hidden">
+                        <h3>4. Confirm Appointment</h3>
+                        <div id="appointmentSummary" class="card" style="background-color: var(--background-light);">
+                            <!-- Summary will be populated here -->
+                        </div>
+                        <div class="form-group">
+                            <label for="reason" class="form-label">Reason for Visit (Optional)</label>
+                            <textarea 
+                                id="reason" 
+                                name="reason" 
+                                class="form-textarea" 
+                                placeholder="Brief description of your visit reason"
+                            ></textarea>
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button type="button" class="btn btn-outline" onclick="prevStep()">Back</button>
+                            <button type="submit" class="btn btn-primary">Confirm Booking</button>
+                        </div>
+                    </div>
+
+                    <div id="errorMessage" class="alert alert-error hidden"></div>
+                    <div id="successMessage" class="alert alert-success hidden"></div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <script src="../../js/api.js"></script>
+    <script>
+        // Check authentication
+        if (!requireAuth()) {
+            // Redirect handled in requireAuth
+        }
+
+        const currentUser = getCurrentUser();
+        if (currentUser.role !== 'patient') {
+            window.location.href = '/frontend/pages/login.html';
+        }
+
+        // Logout functionality
+        document.getElementById('logoutBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            removeToken();
+            window.location.href = '/frontend/pages/login.html';
+        });
+
+        let currentStep = 1;
+        let selectedDoctor = null;
+        let selectedDate = null;
+        let selectedTime = null;
+
+        // Set minimum date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('appointmentDate').setAttribute('min', today);
+
+        // Load doctors
+        async function loadDoctors() {
+            try {
+                const response = await doctorAPI.getAllDoctors();
+                const doctorSelect = document.getElementById('doctor');
+                
+                if (response.success && response.doctors) {
+                    doctorSelect.innerHTML = '<option value="">Select a doctor</option>' +
+                        response.doctors.map(doctor => 
+                            `<option value="${doctor._id}">Dr. ${doctor.firstName} ${doctor.lastName} - ${doctor.specialization}</option>`
+                        ).join('');
+                } else {
+                    doctorSelect.innerHTML = '<option value="">No doctors available</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load doctors:', error);
+                document.getElementById('doctor').innerHTML = '<option value="">Error loading doctors</option>';
+            }
+        }
+
+        function nextStep() {
+            if (currentStep === 1) {
+                const doctorId = document.getElementById('doctor').value;
+                if (!doctorId) {
+                    showAlert('Please select a doctor', 'error');
+                    return;
+                }
+                selectedDoctor = doctorId;
+            } else if (currentStep === 2) {
+                const date = document.getElementById('appointmentDate').value;
+                if (!date) {
+                    showAlert('Please select a date', 'error');
+                    return;
+                }
+                selectedDate = date;
+            } else if (currentStep === 3) {
+                if (!selectedTime) {
+                    showAlert('Please select a time slot', 'error');
+                    return;
+                }
+                showSummary();
+            }
+
+            if (currentStep < 4) {
+                document.getElementById(`step${currentStep}`).classList.add('hidden');
+                currentStep++;
+                document.getElementById(`step${currentStep}`).classList.remove('hidden');
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 1) {
+                document.getElementById(`step${currentStep}`).classList.add('hidden');
+                currentStep--;
+                document.getElementById(`step${currentStep}`).classList.remove('hidden');
+            }
+        }
+
+        async function loadTimeSlots() {
+            const date = document.getElementById('appointmentDate').value;
+            if (!date) {
+                showAlert('Please select a date first', 'error');
+                return;
+            }
+
+            const timeSlotsContainer = document.getElementById('timeSlots');
+            timeSlotsContainer.innerHTML = '<div class="loading">Loading available slots...</div>';
+
+            try {
+                const response = await doctorAPI.getAvailableSlots(selectedDoctor, date);
+                
+                if (response.success && response.availableSlots.length > 0) {
+                    timeSlotsContainer.innerHTML = response.availableSlots.map(slot => 
+                        `<button type="button" class="btn btn-outline time-slot-btn" data-time="${slot}" onclick="selectTime('${slot}')">${formatTime(slot)}</button>`
+                    ).join('');
+                } else {
+                    timeSlotsContainer.innerHTML = '<p style="color: var(--text-secondary);">No available slots for this date</p>';
+                }
+            } catch (error) {
+                console.error('Failed to load time slots:', error);
+                timeSlotsContainer.innerHTML = '<p class="alert alert-error">Failed to load time slots</p>';
+            }
+        }
+
+        function selectTime(time) {
+            selectedTime = time;
+            // Update button styles
+            document.querySelectorAll('.time-slot-btn').forEach(btn => {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline');
+            });
+            event.target.classList.remove('btn-outline');
+            event.target.classList.add('btn-primary');
+        }
+
+        window.selectTime = selectTime;
+
+        async function showSummary() {
+            try {
+                const doctorResponse = await doctorAPI.getDoctor(selectedDoctor);
+                const summaryDiv = document.getElementById('appointmentSummary');
+                
+                if (doctorResponse.success) {
+                    const doctor = doctorResponse.doctor;
+                    summaryDiv.innerHTML = `
+                        <h3>Appointment Summary</h3>
+                        <p><strong>Doctor:</strong> Dr. ${doctor.firstName} ${doctor.lastName}</p>
+                        <p><strong>Specialization:</strong> ${doctor.specialization}</p>
+                        <p><strong>Date:</strong> ${formatDate(selectedDate)}</p>
+                        <p><strong>Time:</strong> ${formatTime(selectedTime)}</p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to load doctor details:', error);
+            }
+        }
+
+        // Handle form submission
+        document.getElementById('bookingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const reason = document.getElementById('reason').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const successDiv = document.getElementById('successMessage');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Booking...';
+
+            try {
+                const response = await appointmentAPI.bookAppointment({
+                    doctorId: selectedDoctor,
+                    appointmentDate: selectedDate,
+                    appointmentTime: selectedTime,
+                    reason: reason || undefined
+                });
+
+                successDiv.textContent = 'Appointment booked successfully! Redirecting...';
+                successDiv.classList.remove('hidden');
+
+                setTimeout(() => {
+                    window.location.href = 'dashboard.html';
+                }, 1500);
+            } catch (error) {
+                errorDiv.textContent = error.message || 'Failed to book appointment';
+                errorDiv.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Confirm Booking';
+            }
+        });
+
+        // Initialize
+        loadDoctors();
+    </script>
+</body>
+</html>

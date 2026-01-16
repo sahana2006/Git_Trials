@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doctor Dashboard - Patient Management System</title>
+    <link rel="stylesheet" href="../../css/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <nav class="container">
+            <div class="logo">🏥 PatientCare</div>
+            <ul class="nav-links">
+                <li><a href="dashboard.html">Dashboard</a></li>
+                <li><a href="#" id="logoutBtn">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Dashboard Content -->
+    <section class="section">
+        <div class="container">
+            <div class="dashboard-header">
+                <h1>Doctor Dashboard</h1>
+                <p id="doctorName">Loading...</p>
+            </div>
+
+            <!-- Today's Appointments -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Today's Appointments</h2>
+                    <button onclick="loadTodayAppointments()" class="btn btn-sm btn-secondary">Refresh</button>
+                </div>
+                <div id="todayAppointments">
+                    <div class="loading">Loading appointments...</div>
+                </div>
+            </div>
+
+            <!-- All Appointments -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">All Appointments</h2>
+                    <div>
+                        <select id="statusFilter" onchange="loadAllAppointments()" class="form-select" style="width: auto; display: inline-block;">
+                            <option value="">All Status</option>
+                            <option value="scheduled">Scheduled</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="allAppointments">
+                    <div class="loading">Loading appointments...</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Appointment Detail Modal -->
+    <div id="appointmentModal" class="hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;">
+        <div class="card" style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+            <div class="card-header">
+                <h3>Appointment Details</h3>
+                <button onclick="closeModal()" class="btn btn-sm btn-outline">Close</button>
+            </div>
+            <div id="modalContent">
+                <!-- Content will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="../../js/api.js"></script>
+    <script>
+        // Check authentication
+        if (!requireAuth()) {
+            // Redirect handled in requireAuth
+        }
+
+        const currentUser = getCurrentUser();
+        if (currentUser.role !== 'doctor') {
+            window.location.href = '/frontend/pages/login.html';
+        }
+
+        // Logout functionality
+        document.getElementById('logoutBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            removeToken();
+            window.location.href = '/frontend/pages/login.html';
+        });
+
+        // Load doctor profile
+        async function loadDoctorProfile() {
+            try {
+                const response = await authAPI.getMe();
+                if (response.success && response.profile) {
+                    document.getElementById('doctorName').textContent = 
+                        `Dr. ${response.profile.firstName} ${response.profile.lastName} - ${response.profile.specialization}`;
+                }
+            } catch (error) {
+                console.error('Failed to load profile:', error);
+            }
+        }
+
+        // Load today's appointments
+        async function loadTodayAppointments() {
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const response = await appointmentAPI.getAppointments({ date: today });
+                
+                if (response.success && response.appointments) {
+                    const todayAppts = response.appointments
+                        .filter(apt => apt.status === 'scheduled')
+                        .sort((a, b) => a.appointmentTime.localeCompare(b.appointmentTime));
+
+                    displayAppointments(todayAppts, 'todayAppointments', true);
+                } else {
+                    document.getElementById('todayAppointments').innerHTML = 
+                        '<p style="color: var(--text-secondary);">No appointments scheduled for today</p>';
+                }
+            } catch (error) {
+                console.error('Failed to load today\'s appointments:', error);
+                document.getElementById('todayAppointments').innerHTML = 
+                    '<p class="alert alert-error">Failed to load appointments</p>';
+            }
+        }
+
+        // Load all appointments
+        async function loadAllAppointments() {
+            try {
+                const statusFilter = document.getElementById('statusFilter').value;
+                const filters = statusFilter ? { status: statusFilter } : {};
+                const response = await appointmentAPI.getAppointments(filters);
+                
+                if (response.success && response.appointments) {
+                    const sortedAppts = response.appointments.sort((a, b) => {
+                        return new Date(b.appointmentDate) - new Date(a.appointmentDate);
+                    });
+
+                    displayAppointments(sortedAppts, 'allAppointments', false);
+                } else {
+                    document.getElementById('allAppointments').innerHTML = 
+                        '<p style="color: var(--text-secondary);">No appointments found</p>';
+                }
+            } catch (error) {
+                console.error('Failed to load appointments:', error);
+                document.getElementById('allAppointments').innerHTML = 
+                    '<p class="alert alert-error">Failed to load appointments</p>';
+            }
+        }
+
+        function displayAppointments(appointments, containerId, isToday) {
+            const container = document.getElementById(containerId);
+            
+            if (appointments.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary);">No appointments found</p>';
+                return;
+            }
+
+            container.innerHTML = appointments.map(apt => {
+                const date = formatDate(apt.appointmentDate);
+                const time = formatTime(apt.appointmentTime);
+                const statusClass = `badge badge-${apt.status}`;
+                
+                const actions = `
+                    <button onclick="viewAppointment('${apt._id}')" class="btn btn-sm btn-secondary">View Details</button>
+                    ${apt.status === 'scheduled' ? 
+                        `<button onclick="completeAppointment('${apt._id}')" class="btn btn-sm btn-primary">Mark Complete</button>` : 
+                        ''
+                    }
+                `;
+
+                return `
+                    <div class="appointment-card">
+                        <div class="appointment-header">
+                            <div class="appointment-info">
+                                <h3>${apt.patientId.firstName} ${apt.patientId.lastName}</h3>
+                                <p><strong>Date:</strong> ${date}</p>
+                                <p><strong>Time:</strong> ${time}</p>
+                                <p><strong>Phone:</strong> ${apt.patientId.phone}</p>
+                                ${apt.reason ? `<p><strong>Reason:</strong> ${apt.reason}</p>` : ''}
+                                <span class="${statusClass}">${apt.status}</span>
+                            </div>
+                            <div class="appointment-actions">
+                                ${actions}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function viewAppointment(id) {
+            try {
+                const response = await appointmentAPI.getAppointment(id);
+                
+                if (response.success) {
+                    const apt = response.appointment;
+                    const date = formatDate(apt.appointmentDate);
+                    const time = formatTime(apt.appointmentTime);
+                    const statusClass = `badge badge-${apt.status}`;
+
+                    document.getElementById('modalContent').innerHTML = `
+                        <div>
+                            <h3>Patient Information</h3>
+                            <p><strong>Name:</strong> ${apt.patientId.firstName} ${apt.patientId.lastName}</p>
+                            <p><strong>Date of Birth:</strong> ${formatDate(apt.patientId.dateOfBirth)}</p>
+                            <p><strong>Gender:</strong> ${apt.patientId.gender}</p>
+                            <p><strong>Phone:</strong> ${apt.patientId.phone}</p>
+                            ${apt.patientId.address ? `
+                                <p><strong>Address:</strong> ${apt.patientId.address.street || ''} ${apt.patientId.address.city || ''} ${apt.patientId.address.state || ''}</p>
+                            ` : ''}
+
+                            <h3 style="margin-top: 2rem;">Appointment Details</h3>
+                            <p><strong>Date:</strong> ${date}</p>
+                            <p><strong>Time:</strong> ${time}</p>
+                            <p><strong>Status:</strong> <span class="${statusClass}">${apt.status}</span></p>
+                            ${apt.reason ? `<p><strong>Reason:</strong> ${apt.reason}</p>` : ''}
+
+                            ${apt.status === 'scheduled' ? `
+                                <h3 style="margin-top: 2rem;">Consultation Notes</h3>
+                                <textarea id="consultationNotes" class="form-textarea" placeholder="Add consultation notes here...">${apt.consultationNotes || ''}</textarea>
+                                <div style="margin-top: 1rem;">
+                                    <button onclick="saveAppointment('${apt._id}')" class="btn btn-primary">Save Notes & Mark Complete</button>
+                                </div>
+                            ` : apt.consultationNotes ? `
+                                <h3 style="margin-top: 2rem;">Consultation Notes</h3>
+                                <p>${apt.consultationNotes}</p>
+                            ` : ''}
+                        </div>
+                    `;
+
+                    document.getElementById('appointmentModal').classList.remove('hidden');
+                }
+            } catch (error) {
+                showAlert(error.message || 'Failed to load appointment details', 'error');
+            }
+        }
+
+        window.viewAppointment = viewAppointment;
+
+        async function completeAppointment(id) {
+            try {
+                const notes = document.getElementById('consultationNotes')?.value || '';
+                await appointmentAPI.updateStatus(id, 'completed', notes);
+                showAlert('Appointment marked as completed', 'success');
+                closeModal();
+                loadTodayAppointments();
+                loadAllAppointments();
+            } catch (error) {
+                showAlert(error.message || 'Failed to update appointment', 'error');
+            }
+        }
+
+        async function saveAppointment(id) {
+            try {
+                const notes = document.getElementById('consultationNotes').value;
+                await appointmentAPI.updateStatus(id, 'completed', notes);
+                showAlert('Appointment updated successfully', 'success');
+                closeModal();
+                loadTodayAppointments();
+                loadAllAppointments();
+            } catch (error) {
+                showAlert(error.message || 'Failed to save appointment', 'error');
+            }
+        }
+
+        window.saveAppointment = saveAppointment;
+        window.completeAppointment = completeAppointment;
+
+        function closeModal() {
+            document.getElementById('appointmentModal').classList.add('hidden');
+        }
+
+        window.closeModal = closeModal;
+
+        // Initialize dashboard
+        loadDoctorProfile();
+        loadTodayAppointments();
+        loadAllAppointments();
+    </script>
+</body>
+</html>

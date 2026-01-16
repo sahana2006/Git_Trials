@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Dashboard - Patient Management System</title>
+    <link rel="stylesheet" href="../../css/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <nav class="container">
+            <div class="logo">🏥 PatientCare</div>
+            <ul class="nav-links">
+                <li><a href="dashboard.html">Dashboard</a></li>
+                <li><a href="book-appointment.html">Book Appointment</a></li>
+                <li><a href="#" id="logoutBtn">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Dashboard Content -->
+    <section class="section">
+        <div class="container">
+            <div class="dashboard-header">
+                <h1>Welcome back!</h1>
+                <p id="patientName">Loading...</p>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-bottom: 2rem;">
+                <a href="book-appointment.html" class="btn btn-primary">Book New Appointment</a>
+            </div>
+
+            <!-- Upcoming Appointments -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Upcoming Appointments</h2>
+                </div>
+                <div id="upcomingAppointments">
+                    <div class="loading">Loading appointments...</div>
+                </div>
+            </div>
+
+            <!-- Appointment History -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Appointment History</h2>
+                </div>
+                <div id="appointmentHistory">
+                    <div class="loading">Loading history...</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="../../js/api.js"></script>
+    <script>
+        // Check authentication
+        if (!requireAuth()) {
+            // Redirect handled in requireAuth
+        }
+
+        const currentUser = getCurrentUser();
+
+        // Logout functionality
+        document.getElementById('logoutBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            removeToken();
+            window.location.href = '/frontend/pages/login.html';
+        });
+
+        // Load patient profile
+        async function loadPatientProfile() {
+            try {
+                const response = await patientAPI.getMyProfile();
+                if (response.success && response.patient) {
+                    document.getElementById('patientName').textContent = 
+                        `${response.patient.firstName} ${response.patient.lastName}`;
+                }
+            } catch (error) {
+                console.error('Failed to load profile:', error);
+            }
+        }
+
+        // Load appointments
+        async function loadAppointments() {
+            try {
+                const response = await appointmentAPI.getAppointments();
+                
+                if (response.success && response.appointments) {
+                    const now = new Date();
+                    const upcoming = response.appointments.filter(apt => {
+                        const aptDate = new Date(apt.appointmentDate);
+                        return aptDate >= now && apt.status === 'scheduled';
+                    }).sort((a, b) => {
+                        return new Date(a.appointmentDate) - new Date(b.appointmentDate);
+                    });
+
+                    const history = response.appointments.filter(apt => {
+                        const aptDate = new Date(apt.appointmentDate);
+                        return aptDate < now || apt.status !== 'scheduled';
+                    }).sort((a, b) => {
+                        return new Date(b.appointmentDate) - new Date(a.appointmentDate);
+                    });
+
+                    displayAppointments(upcoming, 'upcomingAppointments');
+                    displayAppointments(history, 'appointmentHistory');
+                }
+            } catch (error) {
+                console.error('Failed to load appointments:', error);
+                document.getElementById('upcomingAppointments').innerHTML = 
+                    '<p class="alert alert-error">Failed to load appointments</p>';
+                document.getElementById('appointmentHistory').innerHTML = 
+                    '<p class="alert alert-error">Failed to load history</p>';
+            }
+        }
+
+        function displayAppointments(appointments, containerId) {
+            const container = document.getElementById(containerId);
+            
+            if (appointments.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary);">No appointments found</p>';
+                return;
+            }
+
+            container.innerHTML = appointments.map(apt => {
+                const date = formatDate(apt.appointmentDate);
+                const time = formatTime(apt.appointmentTime);
+                const statusClass = `badge badge-${apt.status}`;
+                
+                let actions = '';
+                if (apt.status === 'scheduled') {
+                    actions = `<button onclick="cancelAppointment('${apt._id}')" class="btn btn-danger btn-sm">Cancel</button>`;
+                }
+
+                return `
+                    <div class="appointment-card">
+                        <div class="appointment-header">
+                            <div class="appointment-info">
+                                <h3>${apt.doctorId.firstName} ${apt.doctorId.lastName}</h3>
+                                <p><strong>Specialization:</strong> ${apt.doctorId.specialization}</p>
+                                <p><strong>Date:</strong> ${date}</p>
+                                <p><strong>Time:</strong> ${time}</p>
+                                ${apt.reason ? `<p><strong>Reason:</strong> ${apt.reason}</p>` : ''}
+                                <span class="${statusClass}">${apt.status}</span>
+                            </div>
+                            <div class="appointment-actions">
+                                ${actions}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function cancelAppointment(id) {
+            if (!confirm('Are you sure you want to cancel this appointment?')) {
+                return;
+            }
+
+            try {
+                await appointmentAPI.cancelAppointment(id);
+                showAlert('Appointment cancelled successfully', 'success');
+                loadAppointments();
+            } catch (error) {
+                showAlert(error.message || 'Failed to cancel appointment', 'error');
+            }
+        }
+
+        // Make cancelAppointment available globally
+        window.cancelAppointment = cancelAppointment;
+
+        // Initialize dashboard
+        loadPatientProfile();
+        loadAppointments();
+    </script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Dashboard - Patient Management System</title>
+    <link rel="stylesheet" href="../../css/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <nav class="container">
+            <div class="logo">🏥 PatientCare</div>
+            <ul class="nav-links">
+                <li><a href="dashboard.html">Dashboard</a></li>
+                <li><a href="register-patient.html">Register Patient</a></li>
+                <li><a href="schedule-appointment.html">Schedule Appointment</a></li>
+                <li><a href="#" id="logoutBtn">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Dashboard Content -->
+    <section class="section">
+        <div class="container">
+            <div class="dashboard-header">
+                <h1>Staff Dashboard</h1>
+                <p>Manage patients and appointments</p>
+            </div>
+
+            <!-- Quick Actions -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+                <a href="register-patient.html" class="btn btn-primary">Register New Patient</a>
+                <a href="schedule-appointment.html" class="btn btn-secondary">Schedule Appointment</a>
+            </div>
+
+            <!-- Today's Appointment Queue -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Today's Appointment Queue</h2>
+                    <button onclick="loadTodayAppointments()" class="btn btn-sm btn-secondary">Refresh</button>
+                </div>
+                <div id="todayAppointments">
+                    <div class="loading">Loading appointments...</div>
+                </div>
+            </div>
+
+            <!-- All Patients -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">All Patients</h2>
+                </div>
+                <div id="allPatients">
+                    <div class="loading">Loading patients...</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="../../js/api.js"></script>
+    <script>
+        // Check authentication
+        if (!requireAuth()) {
+            // Redirect handled in requireAuth
+        }
+
+        const currentUser = getCurrentUser();
+        if (currentUser.role !== 'staff') {
+            window.location.href = '/frontend/pages/login.html';
+        }
+
+        // Logout functionality
+        document.getElementById('logoutBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            removeToken();
+            window.location.href = '/frontend/pages/login.html';
+        });
+
+        // Load today's appointments
+        async function loadTodayAppointments() {
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const response = await appointmentAPI.getAppointments({ date: today });
+                
+                if (response.success && response.appointments) {
+                    const todayAppts = response.appointments
+                        .filter(apt => apt.status === 'scheduled')
+                        .sort((a, b) => a.appointmentTime.localeCompare(b.appointmentTime));
+
+                    displayAppointments(todayAppts, 'todayAppointments');
+                } else {
+                    document.getElementById('todayAppointments').innerHTML = 
+                        '<p style="color: var(--text-secondary);">No appointments scheduled for today</p>';
+                }
+            } catch (error) {
+                console.error('Failed to load today\'s appointments:', error);
+                document.getElementById('todayAppointments').innerHTML = 
+                    '<p class="alert alert-error">Failed to load appointments</p>';
+            }
+        }
+
+        function displayAppointments(appointments, containerId) {
+            const container = document.getElementById(containerId);
+            
+            if (appointments.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary);">No appointments found</p>';
+                return;
+            }
+
+            container.innerHTML = appointments.map(apt => {
+                const date = formatDate(apt.appointmentDate);
+                const time = formatTime(apt.appointmentTime);
+                const statusClass = `badge badge-${apt.status}`;
+                
+                return `
+                    <div class="appointment-card">
+                        <div class="appointment-header">
+                            <div class="appointment-info">
+                                <h3>${apt.patientId.firstName} ${apt.patientId.lastName}</h3>
+                                <p><strong>Doctor:</strong> Dr. ${apt.doctorId.firstName} ${apt.doctorId.lastName} - ${apt.doctorId.specialization}</p>
+                                <p><strong>Date:</strong> ${date}</p>
+                                <p><strong>Time:</strong> ${time}</p>
+                                <p><strong>Phone:</strong> ${apt.patientId.phone}</p>
+                                ${apt.reason ? `<p><strong>Reason:</strong> ${apt.reason}</p>` : ''}
+                                <span class="${statusClass}">${apt.status}</span>
+                            </div>
+                            <div class="appointment-actions">
+                                <button onclick="cancelAppointment('${apt._id}')" class="btn btn-sm btn-danger">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function cancelAppointment(id) {
+            if (!confirm('Are you sure you want to cancel this appointment?')) {
+                return;
+            }
+
+            try {
+                await appointmentAPI.cancelAppointment(id);
+                showAlert('Appointment cancelled successfully', 'success');
+                loadTodayAppointments();
+            } catch (error) {
+                showAlert(error.message || 'Failed to cancel appointment', 'error');
+            }
+        }
+
+        window.cancelAppointment = cancelAppointment;
+
+        // Load all patients
+        async function loadAllPatients() {
+            try {
+                const response = await patientAPI.getAllPatients();
+                
+                if (response.success && response.patients) {
+                    displayPatients(response.patients);
+                } else {
+                    document.getElementById('allPatients').innerHTML = 
+                        '<p style="color: var(--text-secondary);">No patients found</p>';
+                }
+            } catch (error) {
+                console.error('Failed to load patients:', error);
+                document.getElementById('allPatients').innerHTML = 
+                    '<p class="alert alert-error">Failed to load patients</p>';
+            }
+        }
+
+        function displayPatients(patients) {
+            const container = document.getElementById('allPatients');
+            
+            if (patients.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary);">No patients found</p>';
+                return;
+            }
+
+            container.innerHTML = `
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Date of Birth</th>
+                            <th>Gender</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${patients.map(patient => `
+                            <tr>
+                                <td>${patient.firstName} ${patient.lastName}</td>
+                                <td>${patient.userId?.email || 'N/A'}</td>
+                                <td>${patient.phone}</td>
+                                <td>${formatDate(patient.dateOfBirth)}</td>
+                                <td>${patient.gender}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        // Initialize dashboard
+        loadTodayAppointments();
+        loadAllPatients();
+    </script>
+</body>
+</html>

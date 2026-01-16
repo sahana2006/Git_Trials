@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule Appointment - Patient Management System</title>
+    <link rel="stylesheet" href="../../css/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <nav class="container">
+            <div class="logo">🏥 PatientCare</div>
+            <ul class="nav-links">
+                <li><a href="dashboard.html">Dashboard</a></li>
+                <li><a href="register-patient.html">Register Patient</a></li>
+                <li><a href="schedule-appointment.html">Schedule Appointment</a></li>
+                <li><a href="#" id="logoutBtn">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Booking Form -->
+    <section class="section">
+        <div class="container-sm">
+            <div class="card">
+                <h2 class="text-center">Schedule Appointment</h2>
+                <p class="text-center" style="color: var(--text-secondary); margin-bottom: 2rem;">
+                    Schedule an appointment for a patient
+                </p>
+
+                <form id="bookingForm">
+                    <div class="form-group">
+                        <label for="patient" class="form-label">Patient *</label>
+                        <select id="patient" name="patient" class="form-select" required>
+                            <option value="">Loading patients...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="doctor" class="form-label">Doctor *</label>
+                        <select id="doctor" name="doctor" class="form-select" required>
+                            <option value="">Loading doctors...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="appointmentDate" class="form-label">Date *</label>
+                        <input 
+                            type="date" 
+                            id="appointmentDate" 
+                            name="appointmentDate" 
+                            class="form-input" 
+                            required
+                            min=""
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="appointmentTime" class="form-label">Time *</label>
+                        <select id="appointmentTime" name="appointmentTime" class="form-select" required>
+                            <option value="">Select date first</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="reason" class="form-label">Reason for Visit (Optional)</label>
+                        <textarea 
+                            id="reason" 
+                            name="reason" 
+                            class="form-textarea" 
+                            placeholder="Brief description of the visit reason"
+                        ></textarea>
+                    </div>
+
+                    <div id="errorMessage" class="alert alert-error hidden"></div>
+                    <div id="successMessage" class="alert alert-success hidden"></div>
+
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">
+                        Schedule Appointment
+                    </button>
+                </form>
+
+                <div style="margin-top: 1.5rem; text-align: center;">
+                    <a href="dashboard.html" class="btn btn-outline">Back to Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="../../js/api.js"></script>
+    <script>
+        // Check authentication
+        if (!requireAuth()) {
+            // Redirect handled in requireAuth
+        }
+
+        const currentUser = getCurrentUser();
+        if (currentUser.role !== 'staff') {
+            window.location.href = '/frontend/pages/login.html';
+        }
+
+        // Logout functionality
+        document.getElementById('logoutBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            removeToken();
+            window.location.href = '/frontend/pages/login.html';
+        });
+
+        // Set minimum date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('appointmentDate').setAttribute('min', today);
+
+        // Load patients
+        async function loadPatients() {
+            try {
+                const response = await patientAPI.getAllPatients();
+                const patientSelect = document.getElementById('patient');
+                
+                if (response.success && response.patients) {
+                    patientSelect.innerHTML = '<option value="">Select a patient</option>' +
+                        response.patients.map(patient => 
+                            `<option value="${patient._id}">${patient.firstName} ${patient.lastName} - ${patient.phone}</option>`
+                        ).join('');
+                } else {
+                    patientSelect.innerHTML = '<option value="">No patients available</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load patients:', error);
+                document.getElementById('patient').innerHTML = '<option value="">Error loading patients</option>';
+            }
+        }
+
+        // Load doctors
+        async function loadDoctors() {
+            try {
+                const response = await doctorAPI.getAllDoctors();
+                const doctorSelect = document.getElementById('doctor');
+                
+                if (response.success && response.doctors) {
+                    doctorSelect.innerHTML = '<option value="">Select a doctor</option>' +
+                        response.doctors.map(doctor => 
+                            `<option value="${doctor._id}">Dr. ${doctor.firstName} ${doctor.lastName} - ${doctor.specialization}</option>`
+                        ).join('');
+                } else {
+                    doctorSelect.innerHTML = '<option value="">No doctors available</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load doctors:', error);
+                document.getElementById('doctor').innerHTML = '<option value="">Error loading doctors</option>';
+            }
+        }
+
+        // Load time slots when date and doctor are selected
+        document.getElementById('appointmentDate').addEventListener('change', loadTimeSlots);
+        document.getElementById('doctor').addEventListener('change', loadTimeSlots);
+
+        async function loadTimeSlots() {
+            const doctorId = document.getElementById('doctor').value;
+            const date = document.getElementById('appointmentDate').value;
+            const timeSelect = document.getElementById('appointmentTime');
+
+            if (!doctorId || !date) {
+                timeSelect.innerHTML = '<option value="">Select doctor and date first</option>';
+                return;
+            }
+
+            timeSelect.innerHTML = '<option value="">Loading slots...</option>';
+
+            try {
+                const response = await doctorAPI.getAvailableSlots(doctorId, date);
+                
+                if (response.success && response.availableSlots.length > 0) {
+                    timeSelect.innerHTML = '<option value="">Select a time</option>' +
+                        response.availableSlots.map(slot => 
+                            `<option value="${slot}">${formatTime(slot)}</option>`
+                        ).join('');
+                } else {
+                    timeSelect.innerHTML = '<option value="">No available slots for this date</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load time slots:', error);
+                timeSelect.innerHTML = '<option value="">Error loading time slots</option>';
+            }
+        }
+
+        // Handle form submission
+        document.getElementById('bookingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = {
+                patientId: document.getElementById('patient').value,
+                doctorId: document.getElementById('doctor').value,
+                appointmentDate: document.getElementById('appointmentDate').value,
+                appointmentTime: document.getElementById('appointmentTime').value,
+                reason: document.getElementById('reason').value || undefined
+            };
+
+            const errorDiv = document.getElementById('errorMessage');
+            const successDiv = document.getElementById('successMessage');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Scheduling...';
+
+            try {
+                const response = await appointmentAPI.bookAppointment(formData);
+
+                successDiv.textContent = 'Appointment scheduled successfully!';
+                successDiv.classList.remove('hidden');
+
+                // Reset form
+                document.getElementById('bookingForm').reset();
+                document.getElementById('appointmentTime').innerHTML = '<option value="">Select date first</option>';
+
+                setTimeout(() => {
+                    successDiv.classList.add('hidden');
+                }, 5000);
+            } catch (error) {
+                errorDiv.textContent = error.message || 'Failed to schedule appointment';
+                errorDiv.classList.remove('hidden');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Schedule Appointment';
+            }
+        });
+
+        // Initialize
+        loadPatients();
+        loadDoctors();
+    </script>
+</body>
+</html>
